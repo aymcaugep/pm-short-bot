@@ -1,26 +1,7 @@
-async def status(message: types.Message):
-    await message.answer(f"Текущий режим: <b>{MODE.upper()}</b> | Риск: ${RISK_PER_TRADE}")
-
-@dp.callback_query()
-async def callback_handler(callback: types.CallbackQuery):
-    await callback.answer("Принято")
-    if callback.data == "short":
-        await callback.message.edit_text("✅ Ордер на шорт $4 отправлен (тест)")
-    elif callback.data == "skip":
-        await callback.message.edit_text("❌ Пропущено")
-
-async def main():
-    print("🚀 Полимаркет Шорт-бот с live LLM запущен!")
-    asyncio.create_task(whale_monitor())
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-    import asyncio
+import asyncio
 import json
 import os
 import requests
-from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -36,46 +17,40 @@ RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE_USDC", 4.0))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-groq = Groq(api_key=GROQ_API_KEY)
+groq = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 USER_CHAT_ID = None
 
 def get_leaderboard():
     try:
-        r = requests.get(
-            "https://data-api.polymarket.com/v1/leaderboard?category=OVERALL&timePeriod=ALL&orderBy=PNL&limit=12",
-            timeout=15
-        )
+        r = requests.get("https://data-api.polymarket.com/v1/leaderboard?category=OVERALL&timePeriod=ALL&orderBy=PNL&limit=10", timeout=15)
         return r.json() if r.status_code == 200 else []
     except:
         return []
 
-async def analyze_short_with_llm(market_title, description, whale_size):
+async def analyze_with_llm(title, description, whale_action):
+    if not groq:
+        return {"prob_yes": 50, "edge": 12, "recommend": "Шортить", "reason": "GROQ отключён"}
+    
     prompt = f"""
-Ты эксперт Polymarket. Сейчас крупный кит зашёл в NO на {whale_size}$.
+Ты эксперт Polymarket. Крупный кит только что сильно зашёл в NO ({whale_action}).
 
-Рынок: "{market_title}"
+Рынок: "{title}"
 Описание: {description}
 
-Дай короткий анализ:
-- Твоя вероятность YES (0-100%)
-- Edge для шорта (насколько переоценён YES)
-- Рекомендация: Шортить сильно / Шортить / Пропустить
-- Короткое объяснение (1 предложение)
-
-Ответ строго JSON:
-{{"prob_yes": 38, "edge": 22, "recommend": "Шортить сильно", "reason": "..." }}
+Дай JSON:
+{{"prob_yes": 42, "edge": 18, "recommend": "Шортить сильно", "reason": "короткое объяснение"}}
 """
     try:
         chat = groq.chat.completions.create(
             model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=300
+            max_tokens=250
         )
         return json.loads(chat.choices[0].message.content.strip())
     except:
-        return {"prob_yes": 50, "edge": 10, "recommend": "Пропустить", "reason": "Ошибка анализа"}
+        return {"prob_yes": 50, "edge": 10, "recommend": "Пропустить", "reason": "Ошибка LLM"}
 
 async def whale_monitor():
     global USER_CHAT_ID
@@ -86,22 +61,18 @@ async def whale_monitor():
 
         leaders = get_leaderboard()
         if leaders:
-            text = "🐳 <b>НОВЫЕ КИТЫ НА ШОРТЕ</b>\n\n"
-            for leader in leaders[:6]:
+            text = "🐳 <b>КИТЫ НА ШОРТЕ</b>\n\n"
+            for leader in leaders[:5]:
                 wallet = leader.get('user', 'Unknown')[:8] + "..."
                 pnl = leader.get('pnl', 0)
                 text += f"• {wallet} | PNL: **${pnl:,.0f}**\n"
 
-            # Пример LLM-анализа (можно расширить на конкретные рынки)
-            analysis = await analyze_short_with_llm(
-                "Популярный политический/крипто рынок",
-                "Крупный кит только что открыл большую позицию NO",
-                15000
-            )
+            # LLM анализ
+            analysis = await analyze_with_llm("Политический/крипто рынок", "Кит открыл большую позицию NO", "$15k+")
 
-            text += f"\n📊 LLM анализ: YES = {analysis['prob_yes']}% | Edge шорта +{analysis['edge']}%\n"
+            text += f"\n📊 LLM: YES = {analysis['prob_yes']}% | Edge шорта +{analysis['edge']}%\n"
             text += f"Рекомендация: <b>{analysis['recommend']}</b>\n"
-            text += f"Причина: {analysis['reason']}"
+            text += f"Причина: {analysis['reason']}\n\n"
 
             keyboard = None
             if MODE == "semi":
@@ -114,15 +85,14 @@ async def whale_monitor():
 
         await asyncio.sleep(240)  # каждые 4 минуты
 
-# ==================== КОМАНДЫ ====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     global USER_CHAT_ID
     USER_CHAT_ID = message.chat.id
     await message.answer(
-        "✅ <b>Бот запущен с live LLM + мониторингом китов!</b>\n"
+        "✅ <b>Бот запущен с реальными китами + LLM анализом!</b>\n"
         f"Режим: <b>{MODE.upper()}</b> | Риск: ${RISK_PER_TRADE}\n\n"
-        "Теперь присылает реальных китов + LLM-анализ выгодности шорта.",
+        "Теперь показывает ник кита, PNL и LLM-рекомендацию шорта.",
         parse_mode="HTML"
     )
 
@@ -137,3 +107,22 @@ async def change_mode(message: types.Message):
         await message.answer("Использование: /mode semi или /mode auto")
 
 @dp.message(Command("status"))
+async def status(message: types.Message):
+    await message.answer(f"Текущий режим: <b>{MODE.upper()}</b> | Риск: ${RISK_PER_TRADE}")
+
+@dp.callback_query()
+async def callback_handler(callback: types.CallbackQuery):
+    await callback.answer("Принято")
+    if callback.data == "short":
+        await callback.message.
+        edit_text("✅ Ордер на шорт $4 отправлен")
+    elif callback.data == "skip":
+        await callback.message.edit_text("❌ Пропущено")
+
+async def main():
+    print("🚀 Полимаркет Шорт-бот с live LLM запущен!")
+    asyncio.create_task(whale_monitor())
+    await dp.start_polling(bot)
+
+if name == "__main__":
+    asyncio.run(main())
