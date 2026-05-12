@@ -31,14 +31,13 @@ def get_leaderboard():
 async def analyze_with_llm(title, description, whale_action):
     if not groq:
         return {"prob_yes": 50, "edge": 12, "recommend": "Шортить", "reason": "GROQ отключён"}
-    
     prompt = f"""
-Ты эксперт Polymarket. Крупный кит только что сильно зашёл в NO ({whale_action}).
+Ты эксперт Polymarket. Крупный кит зашёл в NO ({whale_action}).
 
 Рынок: "{title}"
 Описание: {description}
 
-Дай JSON:
+Ответ строго JSON:
 {{"prob_yes": 42, "edge": 18, "recommend": "Шортить сильно", "reason": "короткое объяснение"}}
 """
     try:
@@ -65,14 +64,13 @@ async def whale_monitor():
             for leader in leaders[:5]:
                 wallet = leader.get('user', 'Unknown')[:8] + "..."
                 pnl = leader.get('pnl', 0)
-                text += f"• {wallet} | PNL: **${pnl:,.0f}**\n"
+                text += f"• `{wallet}` | PNL: **${pnl:,.0f}**\n"
 
-            # LLM анализ
-            analysis = await analyze_with_llm("Политический/крипто рынок", "Кит открыл большую позицию NO", "$15k+")
+            analysis = await analyze_with_llm("Популярный рынок", "Кит открыл большую позицию NO", "$15k+")
 
             text += f"\n📊 LLM: YES = {analysis['prob_yes']}% | Edge шорта +{analysis['edge']}%\n"
             text += f"Рекомендация: <b>{analysis['recommend']}</b>\n"
-            text += f"Причина: {analysis['reason']}\n\n"
+            text += f"Причина: {analysis['reason']}"
 
             keyboard = None
             if MODE == "semi":
@@ -83,14 +81,14 @@ async def whale_monitor():
 
             await bot.send_message(USER_CHAT_ID, text, reply_markup=keyboard, parse_mode="HTML")
 
-        await asyncio.sleep(240)  # каждые 4 минуты
+        await asyncio.sleep(240)
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
     global USER_CHAT_ID
     USER_CHAT_ID = message.chat.id
     await message.answer(
-        "✅ <b>Бот запущен с реальными китами + LLM анализом!</b>\n"
+        "✅ <b>Бот запущен с реальными китами + LLM!</b>\n"
         f"Режим: <b>{MODE.upper()}</b> | Риск: ${RISK_PER_TRADE}\n\n"
         "Теперь показывает ник кита, PNL и LLM-рекомендацию шорта.",
         parse_mode="HTML"
@@ -114,8 +112,7 @@ async def status(message: types.Message):
 async def callback_handler(callback: types.CallbackQuery):
     await callback.answer("Принято")
     if callback.data == "short":
-        await callback.message.
-        edit_text("✅ Ордер на шорт $4 отправлен")
+        await callback.message.edit_text("✅ Ордер на шорт $4 отправлен")
     elif callback.data == "skip":
         await callback.message.edit_text("❌ Пропущено")
 
