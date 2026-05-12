@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiohttp_socks import ProxyConnector
 
 load_dotenv()
 
@@ -12,9 +11,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 MODE = os.getenv("MODE", "semi")
 RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE_USDC", 4.0))
 
-# Подключаем твой socks4-прокси
-connector = ProxyConnector.from_url('socks4://127.0.0.1:10808')
-bot = Bot(token=BOT_TOKEN, session=types.base.TelegramAPISession(connector=connector))
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 USER_CHAT_ID = None
@@ -24,10 +21,10 @@ async def start(message: types.Message):
     global USER_CHAT_ID
     USER_CHAT_ID = message.chat.id
     await message.answer(
-        "✅ Бот запущен с прокси!\n"
+        "✅ Бот успешно запущен на Railway!\n"
         f"Режим: <b>{MODE.upper()}</b>\n"
         f"Риск на сделку: ${RISK_PER_TRADE}\n\n"
-        "Команды: /mode semi | /mode auto | /status",
+        "Команды:\n/mode semi\n/mode auto\n/status",
         parse_mode="HTML"
     )
 
@@ -52,7 +49,7 @@ async def whale_monitor():
             await asyncio.sleep(10)
             continue
         
-        text = "🐳 ТЕСТОВЫЙ АЛЕРТ\nКИТ ШОРТИТ на Polymarket\n(бот работает через прокси)"
+        text = "🐳 ТЕСТОВЫЙ АЛЕРТ\nКИТ ШОРТИТ на Polymarket\n(бот работает на Railway)"
         
         keyboard = None
         if MODE == "semi":
@@ -73,7 +70,7 @@ async def callback_handler(callback: types.CallbackQuery):
     await callback.answer()
 
 async def main():
-    print("🚀 Полимаркет Шорт-бот запущен (через socks4-прокси)")
+    print("🚀 Полимаркет Шорт-бот запущен на Railway!")
     asyncio.create_task(whale_monitor())
     await dp.start_polling(bot)
 
