@@ -17,27 +17,34 @@ RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE_USDC", 4.0))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-groq = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+# Защита от проблем с Groq
+try:
+    groq = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+    print("✅ Groq инициализирован")
+except Exception as e:
+    print(f"⚠️ Groq не инициализирован: {e}")
+    groq = None
 
 USER_CHAT_ID = None
 
 def get_leaderboard():
     try:
         r = requests.get(
-            "https://data-api.polymarket.com/v1/leaderboard?category=OVERALL&timePeriod=ALL&orderBy=PNL&limit=15",
+            "https://data-api.polymarket.com/v1/leaderboard?category=OVERALL&timePeriod=ALL&orderBy=PNL&limit=12",
             timeout=15
         )
         return r.json() if r.status_code == 200 else []
     except:
         return []
 
-async def analyze_with_llm(title: str, description: str, whale_size: str, direction: str):
+async def analyze_with_llm(title: str, description: str, whale_size: str):
     if not groq:
-        return {"prob_yes": 48, "edge": 15, "recommend": "Шортить", "confidence": 65, "reason": "GROQ отключён"}
+        return {"prob_yes": 50, "edge": 12, "recommend": "Шортить", "confidence": 60, "reason": "GROQ отключён"}
 
     prompt = f"""
-Ты профессиональный трейдер Polymarket с win-rate >65%.
-Крупный кит только что поставил {whale_size} в сторону **{direction}** (шорт).
+Ты профессиональный трейдер Polymarket с win-rate выше 65%.
+Крупный кит только что поставил {whale_size} в сторону **NO** (шорт).
 
 Рынок: "{title}"
 Описание: {description}
@@ -45,9 +52,9 @@ async def analyze_with_llm(title: str, description: str, whale_size: str, direct
 Дай максимально точный анализ:
 - Реальная вероятность YES (0-100)
 - Edge для шорта в %
-- Рекомендация: Шортить сильно / Шортить / Пропустить
+- Рекомендация: "Шортить сильно" / "Шортить" / "Пропустить"
 - Confidence (0-100)
-- Короткое, но точное объяснение (1-2 предложения)
+- Короткое точное объяснение (1-2 предложения)
 
 Ответ строго JSON:
 {{"prob_yes": 42, "edge": 19, "recommend": "Шортить сильно", "confidence": 78, "reason": "..." }}
@@ -61,7 +68,7 @@ async def analyze_with_llm(title: str, description: str, whale_size: str, direct
         )
         return json.loads(chat.choices[0].message.content.strip())
     except:
-        return {"prob_yes": 50, "edge": 10, "recommend": "Пропустить", "confidence": 50, "reason": "Ошибка LLM"}
+        return {"prob_yes": 50, "edge": 10, "recommend": "Пропустить", "confidence": 50, "reason": "Ошибка анализа"}
 
 async def whale_monitor():
     global USER_CHAT_ID
@@ -71,18 +78,21 @@ async def whale_monitor():
             continue
 
         leaders = get_leaderboard()
+        if not leaders:
+            await asyncio.sleep(180)
+            continue
+
         for leader in leaders[:8]:
             wallet = leader.get('user', 'Unknown')
             pnl = leader.get('pnl', 0)
 
             analysis = await analyze_with_llm(
                 "Активный рынок Polymarket",
-                "Крупный кит открыл значительную позицию NO",
-                "$12k+",
-                "NO"
+                "Крупный кит открыл значительную позицию в сторону NO",
+                "$12k+"
             )
 
-            if analysis["edge"] >= 13:  # фильтр на хорошие возможности
+            if analysis["edge"] >= 13:  # только хорошие шорты
                 text = (
                     f"🐳 <b>КИТ ШОРТИТ</b>\n\n"
                     f"`{wallet[:8]}...` | PNL **${pnl:,.0f}**\n"
@@ -101,16 +111,16 @@ async def whale_monitor():
 
                 await bot.send_message(USER_CHAT_ID, text, reply_markup=keyboard, parse_mode="HTML")
 
-        await asyncio.sleep(240)  # каждые 4 минуты
+        await asyncio.sleep(240)
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
     global USER_CHAT_ID
     USER_CHAT_ID = message.chat.id
     await message.answer(
-        "✅ <b>БОТ РАБОТАЕТ НА ПОЛНУЮ</b>\n"
+        "✅ <b>ФИНАЛЬНЫЙ БОТ ЗАПУЩЕН</b>\n"
         f"Режим: <b>{MODE.upper()}</b> | Риск: ${RISK_PER_TRADE}\n\n"
-        "Мониторит китов + улучшенный LLM-анализ шортов.",
+        "Мониторит китов + мощный LLM-анализ шортов.",
         parse_mode="HTML"
     )
 
@@ -137,7 +147,7 @@ async def callback_handler(callback: types.CallbackQuery):
         await callback.message.edit_text("❌ Пропущено")
 
 async def main():
-    print("🚀 РЕАЛЬНЫЙ ШОРТ-БОТ ЗАПУЩЕН!")
+    print("🚀 ФИНАЛЬНЫЙ РЕАЛЬНЫЙ ШОРТ-БОТ ЗАПУЩЕН!")
     asyncio.create_task(whale_monitor())
     await dp.start_polling(bot)
 
